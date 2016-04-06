@@ -1,0 +1,806 @@
+# load raw data
+train <- read.csv("train.csv", header = TRUE)
+test <- read.csv("test.csv", header = TRUE)
+
+# add a 'survived' variable to the test set to allow for combining
+test.survived <- data.frame(Survived = rep("None", nrow(test)), test[,])
+# need CAPS
+
+#combine data sets
+data.combined <- rbind(train, test.survived)
+
+# a bit about data types
+str(data.combined)
+
+# reclassify particular variables
+data.combined$Pclass <- as.factor(data.combined$Pclass)
+data.combined$Survived <- as.factor(data.combined$Survived)
+
+# tabulate the survival data
+table(data.combined$Survived)
+
+
+# distribution across classes
+table(data.combined$Pclass)
+
+# load ggplot package for viz
+library(ggplot2)
+
+# hypothesis: rich folks survived at a higher rate
+train$Pclass <- as.factor(train$Pclass)
+ggplot(train, aes(x = Pclass, fill = factor(Survived))) + 
+  geom_bar(width = 0.5) + 
+  xlab("Pclass") + 
+  ylab("Total Count") + 
+  labs(fill = "Survived")
+
+ggplot(train, aes(x = Survived, fill = factor(Sex))) + 
+  geom_bar(width = 0.5) + 
+  xlab("Perished/Survived") + 
+  ylab("Total Count") + 
+  labs(fill = "Passengers")
+
+# examine the first few names in the data set
+head(as.character(train$Name))
+
+# how many unique names are there in the train and test sets?
+length(unique(as.character(data.combined$Name)))
+
+# find 2 names that shouldn't be dupes
+dup.names <- as.character(data.combined[which(duplicated(as.character(data.combined$Name))) ,"name"])
+
+# check the names to see if they are dupes or just diff
+# people with the same name
+data.combined[which(data.combined$Name %in% dup.names),]
+
+# test title relevance
+misses <- data.combined[which(str_detect(data.combined$Name, "Miss.")),]
+misses[1:5,]
+
+mrs <- data.combined[which(str_detect(data.combined$Name, "Mrs.")),]
+mrs[1:5,]
+
+males <- data.combined[which(train$Sex == "male"),]
+males[1:5,]
+
+extractTitle <- function(name) {
+  name <- as.character(name)
+  
+  if (length(grep("Miss.", name)) > 0) {
+    return("Miss.")
+  } else if (length(grep("Master.", name)) > 0) {
+    return("Master.")
+  } else if (length(grep("Mrs.", name)) > 0) {
+    return("Mrs.")
+  } else if (length(grep("Mr.", name)) > 0) {
+    return("Mr.")
+  } else {
+    return("Other")
+  }
+}
+
+titles <- NULL
+for (i in 1:nrow(data.combined)) {
+  titles <- c(titles, extractTitle(data.combined[i, "Name"]))
+}
+
+data.combined$title <- as.factor(titles)
+
+#visualize
+ggplot(data.combined[1:891,], aes(x = title, fill = Survived)) +
+  geom_bar(width = .5) +
+  facet_wrap(~Pclass) +
+  ggtitle("Pclass") +
+  xlab("Title") +
+  ylab("Total Count") +
+  labs(fill = "Survived")
+
+#sex breakdown
+table(data.combined$Sex)
+
+# survival breakdown by sex
+ggplot(data.combined[1:891,], aes(x = Sex, fill = Survived)) +
+  geom_bar(width = 0.5) +
+  facet_wrap(~Pclass) +
+  ggtitle("Pclass") +
+  xlab("Sex") +
+  ylab("Total Count") +
+  labs(fill = "Survived")
+
+# age breakdown
+summary(data.combined$Age)
+# summarize just the first 891 values (just the train data)
+summary(data.combined[1:891,"Age"])
+
+# visualize
+ggplot(data.combined[1:891,], aes(x = Age, fill = Survived)) +
+  facet_wrap(~Sex + Pclass) +
+  geom_bar(binwidth = 10) +
+  xlab("Age") +
+  ylab("Total Count")
+
+#visualize that 'master' is a good proxy for male children
+boys <- data.combined[which(data.combined$title == "Master."),]
+summary(boys$Age)
+
+# trying to find men
+summary(males)
+men <- males[which(males$Age > 17),]
+summary(men$Age)
+str(men)
+
+# examine "Miss."
+misses <- data.combined[which(data.combined$title == "Miss."),]
+summary(misses$Age)
+
+ggplot(misses[misses$Survived != "None",], aes(x = Age, fill = Survived)) +
+  facet_wrap(~Pclass) +
+  geom_histogram(binwidth = 5) +
+  ggtitle("Age for 'Miss.' by Pclass") +
+  xlab("Age") +
+  ylab("Total Count")
+
+# appears that female children have diff survival rates
+# could be a candidate for feature engineering later
+misses.alone <- misses[which(misses$SibSp == 0 & misses$Parch == 0),]
+summary(misses.alone$Age)
+length(which(misses.alone$Age <= 14.5))
+
+# summarize sbsp variable
+summary(data.combined$SibSp)
+# can we turn this into a factor? if so, 
+# we can do some nice visualizations
+#count of unique sibsp values
+length(unique(data.combined$SibSp))
+# should be factorable because it's pretty short
+data.combined$SibSp <- as.factor(data.combined$SibSp)
+
+#now need to use geom_bar, not hist
+ggplot(data.combined[1:891,], aes(x = SibSp, fill = Survived)) +
+  geom_bar(width = 1) +
+  facet_wrap(~Pclass + title) +
+  ggtitle("PClass, Title") +
+  xlab("SibSp") +
+  ylab("Total Count") +
+  ylim(0,300) +
+  labs(fill = "Survived")
+
+data.combined$Parch <- as.factor(data.combined$Parch)
+ggplot(data.combined[1:891,], aes(x = Parch, fill = Survived)) +
+  geom_bar(width = 1) +
+  facet_wrap(~Pclass + title) +
+  ggtitle("PClass, Title") +
+  xlab("Parch") +
+  ylim(0,300) +
+  labs(fill = "Survived")
+
+#feature enineering: create a family size feature
+temp.sibsp <- c(train$SibSp, test$SibSp)
+temp.parch <- c(train$Parch, test$Parch)
+# data is still in integer form in train and test
+data.combined$family.size <- as.factor(temp.sibsp + temp.parch + 1)
+
+# visualize to see predictability
+ggplot(data.combined[1:891,], aes(x = family.size, fill = Survived)) +
+  geom_bar(width = 1) +
+  facet_wrap(~Pclass + title) +
+  ggtitle("Pclass, Title") +
+  xlab("family size") +
+  ylab("Total Count") +
+  ylim(0,300) +
+  labs(fill = "Survived")
+
+#tickets
+str(data.combined$Ticket)
+data.combined$Ticket <- as.character(data.combined$Ticket)
+data.combined$Ticket[1:20]
+
+tick.first.char <- ifelse(data.combined$Ticket == "", " ", substr(data.combined$Ticket, 1, 1))
+unique(tick.first.char)
+# about 20 values, can make a factor
+data.combined$tick.first.char <- as.character(tick.first.char)
+
+ggplot(data.combined[1:891,], aes(x = tick.first.char, fill = Survived)) +
+  geom_bar() +
+  ggtitle("Survivability by tick.first.char") +
+  xlab("tick.first.char") +
+  ylab("Total Count") +
+  labs(fill = "Survived")
+
+# ticket seems like it might be predictive
+# drill down and pivot on Pclass
+ggplot(data.combined[1:891,], aes(x = tick.first.char, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~Pclass) +
+  ggtitle("Pclass") +
+  xlab("tick.first.char") +
+  ylab("Total Count") +
+  ylim(0,150) +
+  labs(fill = "Survived")
+
+# do it one more time with pclass and title
+ggplot(data.combined[1:891,], aes(x = tick.first.char, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~Pclass + title) +
+  ggtitle("Pclass, Title") +
+  xlab("tick.first.char") +
+  ylab("Total Count") +
+  ylim(0,200) +
+  labs(fill = "Survived")
+
+# fares (cost of ticket)
+# prob a strong pclass/cost correlation
+summary(data.combined$Fare)
+length(unique(data.combined$Fare))
+str(data.combined$Fare)
+
+#visualize
+ggplot(data.combined, aes(x = Fare)) +
+  geom_histogram(binwidth = 5) +
+  ggtitle("Combined fare distribution") +
+  xlab("Fare") + 
+  ylab("Total Count") +
+  ylim(0,200)
+
+# drill down
+# facet wrap >> pivot on these vars
+# fill >> show survivors
+ggplot(data.combined[1:891,], aes(x = Fare, fill = Survived)) +
+  geom_histogram(binwidth = 5) +
+  facet_wrap(~Pclass + title) +
+  ggtitle("Pclass, Title") +
+  xlab("Fare") +
+  ylab("Total Count") +
+  ylim(0,50) +
+  labs(fill = "Survived")
+
+# cabin var
+str(data.combined$Cabin)
+# factor doesn't make sense >> string
+data.combined$Cabin <- as.character(data.combined$Cabin)
+data.combined$Cabin[1:100]
+# lots of NAs; letter + number, 
+# mult cabins listed sometimes
+# does letter correspond to deck level?
+# do NAs indicate 3rd class?
+data.combined[which(data.combined$Cabin == ""), "Cabin"] <- "U"
+# show all instances of NA cabin, change to U
+data.combined$Cabin[1:100]
+# take first letter again, most likely place
+# for signal in this var
+cabin.first.char <- as.factor(substr(data.combined$Cabin, 1, 1))
+str(cabin.first.char)
+levels(cabin.first.char)
+# add new var to data.comb
+data.combined$cabin.first.char <- cabin.first.char
+# high-level plot, first look
+ggplot(data.combined[1:891,], aes(x = cabin.first.char, fill = Survived)) +
+  geom_bar() +
+  ggtitle("Survivability by cabin.first.char") +
+  xlab("cabin.first.char") +
+  ylab("Total Count") +
+  ylim(0, 750) +
+  labs(fill = "Survived")
+
+#drill down, because you should
+ggplot(data.combined[1:891,], aes(x = cabin.first.char, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~Pclass) +
+  ggtitle("Survivability by cabin.first.char") +
+  xlab("Pclass") +
+  ylab("Total Count") +
+  ylim(0,500) +
+  labs(fill = "Survived")
+
+# cabin correlates with class, therefore 
+# we might just use class instead
+ggplot(data.combined[1:891,], aes(x = cabin.first.char, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~Pclass + title) +
+  ggtitle("Pclass, Title") +
+  xlab("Cabin.First.Char") +
+  ylab("Total Count") +
+  ylim(0,500) +
+  labs(fill = "Survived")
+
+# what about mult cabins? are you rich, then?
+data.combined$cabin.mult <- as.factor(ifelse(str_detect(data.combined$Cabin, " "), "Y", "N"))
+data.combined$cabin.mult[1:100]
+
+# survivability by embark location
+str(data.combined$Embarked)
+#fact w/four levels(locations)
+levels(data.combined$Embarked)
+
+ggplot(data.combined[1:891,], aes(x = Embarked, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~Pclass + title) +
+  ggtitle("Pclass, title") +
+  xlab("Embarked") +
+  ylab("Total Count") +
+  ylim(0,300) +
+  labs(fill = "Survived")
+
+library(randomForest)
+
+#train a random forest with the default parameters
+# using Pclass and title
+rf.train.1 <- data.combined[1:891, c("Pclass", "title")]
+rf.label <- as.factor(train$Survived)
+
+# need to set seed for reproducibility
+set.seed(1234)
+rf.1 <- randomForest(x = rf.train.1, y = rf.label, importance = TRUE, ntree = 1000)
+rf.1
+#table(train$Survived)
+
+varImpPlot(rf.1)
+
+# add sibsp to model
+rf.train.2 <- data.combined[1:891, c("Pclass", "title", "SibSp")]
+set.seed(1234)
+rf.2 <- randomForest(x = rf.train.2, y = rf.label, importance = TRUE, nntree = 1000)
+rf.2
+varImpPlot(rf.2)
+
+# try again with parch
+rf.train.3 <- data.combined[1:891, c("Pclass", "title", "Parch")]
+
+set.seed(1234)
+rf.3 <- randomForest(x = rf.train.3, y = rf.label, iimportance = TRUE, ntree = 1000)
+rf.3
+varImpPlot(rf.3)
+
+# try parch and sibsp
+rf.train.4 <- data.combined[1:891, c("Pclass", "title", "SibSp", "Parch")]
+
+set.seed(1234)
+rf.4 <- randomForest(x = rf.train.4, y = rf.label, importance = TRUE, ntree = 1000)
+rf.4
+varImpPlot(rf.4)
+
+
+#train a rand forest using pclass, title, and family size
+rf.train.5 <- data.combined[1:891, c("Pclass", "title", "family.size")]
+
+set.seed(1234)
+rf.5 <- randomForest(x = rf.train.5, y = rf.label, importance = TRUE, ntree = 1000)
+rf.5
+varImpPlot(rf.5)
+
+# to check, if we add sibsp will anything change? 
+rf.train.6 <- data.combined[1:891, c("Pclass", "title", "SibSp", "family.size")]
+
+set.seed(1234)
+rf.6 <- randomForest(x = rf.train.6, y = rf.label, importance = TRUE, ntree = 1000)
+rf.6
+varImpPlot(rf.6)
+
+# let's just see about parch
+rf.train.7 <- data.combined[1:891, c("Pclass", "title", "Parch", "family.size")]
+
+set.seed(1234)
+rf.7 <- randomForest(x = rf.train.7, y = rf.label, importance = TRUE, ntree = 1000)
+rf.7
+varImpPlot(rf.7)
+
+######
+# subset test records and features
+test.submit.df <- data.combined[892:1309, c("Pclass", "title", "family.size")]
+# get last 418 rows, (orig test set)
+# only want the 3 relevant columns
+
+# use predict function
+rf.5.preds <- predict(rf.5, test.submit.df)
+# predict using rf.5 on test.sub.df as input
+# store predictions in rf.5.preds
+# rf.5.preds has two factor levels
+table(rf.5.preds)
+#kaggle req's a csv for submission
+#create df with 2 cols, passenger ID and Survived
+submit.df <- data.frame(PassengerID = rep(892:1309), Survived = rf.5.preds)
+#rep replicates elements
+#kaggle > data page > sample csv
+# pass id 892:1309, survived 1 or 0
+write.csv(submit.df, file = "RF_SUB_20160329_1.csv", row.names = FALSE)
+#default row names is TRUE, don't want that
+
+# actual model is less predictive than OOB
+
+library(caret)
+# facilitates cross val and lots of other activites
+
+# 10 fold CV: run experiment on 9/10s of data, 
+# test the model on the remaining 1/10
+# repeat for each 1/10
+# average the area
+
+# research shows that 10-fold CV repeated 10 times
+# is the best place to start, but there are no hard 
+# rules. Each situation will depend on the Data 
+# Scientist's experience for the optimal method.
+
+# 10 fold is a good place to start for this proj
+
+# 10 fold can be computationally demanding with lots of data and features
+# it should be repeated 10 times >> 100,000 tests
+# caret let's you do the work done simultaneously
+
+library(doSNOW)
+
+# 10 fold CV 10 times
+# 100 folds (slices of data)
+# folds must be different for each repetition
+set.seed(2348)
+cv.10.folds <- createMultiFolds(rf.label, k = 10, times = 10)
+# random dist may be bad, each fold should have correct proportion 
+# of survive/die
+# caret does that automatically with multifold
+
+table(rf.label)
+#342 / 549 = 62.3% perished
+
+#check a random fold to see that the proportion is correct
+table(rf.label[cv.10.folds[[33]]])
+# 308 / 494 = 62.3%
+
+# set up caret's trainControl object per above
+?trainControl
+ctrl.1 <- trainControl(method = "repeatedcv", number = 10, repeats = 10, index = cv.10.folds)
+
+# set up doSNOW package for multi-core training
+# this is helpful as we're going to be training 
+# a lot of trees
+# doSNOW works on Win/Mac; doMC works on Linux/Mac
+
+c1 <- makeCluster(6, type = "SOCK")
+# create a cluster w/6 child processes, type: socket servers
+registerDoSNOW(c1)
+# parallel backend for each package
+
+# set seed and train
+set.seed(34324)
+rf.5.cv.1 <- train(x = rf.train.5, y = rf.label, method = "rf", tunelength = 3, ntree = 1000, trControl = ctrl.1)
+# look up ?train to understand all the many many potential functions
+# trControl is train control, VERY IMPORTANT
+# method is random forest "rf"
+# tunelength -- uh, something about M Try and the number of times to try to optimize (300,000 trees)
+# x > use training input from rf.5
+# y > use the same labels from rf.5
+
+# check results
+rf.5.cv.1
+# the accuracy is a little less than rf.5
+# but in the kaggle submission, the actual accuracy was even less
+# potentially repeat with smaller number of folds 
+#   less prone to overfit
+
+set.seed(5983)
+cv.5.folds <- createMultiFolds(rf.label, k = 5, times = 10)
+
+ctrl.2 <- trainControl(method = "repeatedcv", number = 5, repeats = 10, index = cv.5.folds)
+
+c1 <- makeCluster(6, type = "SOCK")
+registerDoSNOW(c1)
+
+set.seed(89472)
+rf.5.cv.2 <- train(x = rf.train.5, y = rf.label, method = "rf", tuneLength = 2, ntree = 1000, trControl = ctrl.2)
+
+rf.5.cv.2
+# 5 fold was more accurate, not BETTER
+# try 3 fold
+
+set.seed(37596)
+cv.3.folds <- createMultiFolds(rf.label, k = 3, times = 10)
+
+ctrl.3 <- trainControl(method = "repeatedcv", number = 3, repeats = 10, index = cv.3.folds)
+
+c1 <- makeCluster(6, type = "SOCK")
+registerDoSNOW(c1)
+
+set.seed(94622)
+rf.5.cv.3 <- train(x = rf.train.5, y = rf.label, method = "rf", tuneLength = 2, ntree = 1000, trControl = ctrl.3)
+
+rf.5.cv.3
+
+
+########
+#PART 6#
+########
+# going back to single decision tree to 
+# increase model accuracy
+
+# Use a single decision tree to better understand what's 
+# going on with our features. Obviously RF are more powerful, 
+# but single trees are easier to understand. 
+
+# Packages: Rpart and Rpart.plot
+library(rpart)
+library(rpart.plot)
+# 3-fold CV repeated 10 times was pretty good, so we'll
+# try it again (it was about 2% high)
+
+# Create utility function
+rpart.cv <- function(seed, training, labels, ctrl) {
+  cl <- makeCluster(6, type = "SOCK")
+  registerDoSNOW(cl)
+  
+  set.seed(seed)
+  # Leverage formula interface for training
+  rpart.cv <- train(x = training, y = labels, method = "rpart", tuneLength = 30, 
+                    trControl = ctrl)
+  # method = part tree instead of rand forest
+  #Shutdown cluster
+  stopCluster(cl)
+  
+  return (rpart.cv)
+}
+
+# Grab features
+features <- c("Pclass", "title", "family.size")
+rpart.train.1 <- data.combined[1:891, features]
+
+# Run CV and check out results
+rpart.1.cv.1 <- rpart.cv(94622, rpart.train.1, rf.label, ctrl.3)
+rpart.1.cv.1
+
+# baseline accuracy is 81.7%
+
+# plot
+prp(rpart.1.cv.1$finalModel, type = 0, extra = 1, under = TRUE)
+# other option:
+rpart.1.cv.1$finalModel
+
+# 0 = died, 1 = survived
+# if title = Mr or Other:
+# 451 died, 91 survived, 
+# best guess then is if you have these titles, you died
+# 83.2% accuracy, but first class men had higher rates of survival
+# potential for acc improvement here
+
+# if title is diff:
+# is Pclass 3?
+# if not, 9 died and 168 survived 
+# best guess is survival for not Mr or Other and not Pclass 3
+# (94% accurcacy, good enough)
+
+# if title != Mr or Other, and Pclass != 3:
+# is family size 5, 6, 8, or 11?
+# if yes, 34 died and 0 survived, 
+# if no, 55 died and 83 survived
+# this is the definition of overfitting. 
+# e.g. if the test set has one family of 5, that fam will
+# generalize for all fams of 5 in the full set
+# fam.size > 5 may be more generalizable for population
+
+# both rpart and rf confirm that title is important. 
+# let's investigate further
+table(data.combined$title)
+# 31 'other' titles
+
+# parse out last name and title
+data.combined[1:25, "Name"]
+# may want to try regex, but Langer's not good at them
+
+# want all the first values (last names) from all 1309 entries in the list
+name.splits <- str_split(data.combined$Name, ",")
+name.splits[1]
+# sapply applies the same thing over a vector's values
+last.names <- sapply(name.splits, "[", 1)
+# apply the indexing operator to each element in list, 
+# each time you apply the indexing operator, return the first element
+# add that to a list
+last.names[1:10]
+# chr vector with 1309 elements
+
+# add last name to DF just in case they're useful
+data.combined$last.name <- last.names
+
+# now for titles
+name.splits <- str_split(sapply(name.splits, "[", 2), " ")
+# take the second element and split on spaces
+# there's a leading space, so title is the second element
+titles <- sapply(name.splits, "[", 2)
+unique(titles)
+
+# many 'other' titles imply higher status and female
+# our model assumed they all died
+
+# but what about 'the'?
+data.combined[which(titles == "the"),]
+# so she's a countess...
+
+#so, let's update title
+# change the and dona. to 'lady'
+titles[titles %in% c("Dona.", "the")] <- "Lady."
+titles[titles %in% c("Ms.", "Mlle.")] <- "Miss."
+titles[titles == "Mme."] <- "Mrs."
+titles[titles %in% c("Jonkheer.", "Don.")] <- "Sir."
+titles[titles %in% c("Col.", "Capt.", "Major")] <- "Officer"
+table(titles)
+
+# make titles a factor
+data.combined$new.title <- as.factor(titles)
+
+# and plot!
+ggplot(data.combined[1:891,], aes(x = new.title, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~ Pclass) +
+  ggtitle("Survival Rates for new.title by Pclass")
+
+# small number of noble titles
+# to avoid overfitting, just lump them into Mr. and Mrs.
+# safe to assume that Dr. and Officer = Mr.
+
+indexes <- which(data.combined$new.title == "Lady.")
+data.combined$new.title[indexes] <- "Mrs."
+
+indexes <- which(data.combined$new.title == "Dr." |
+                   data.combined$new.title == "Rev." |
+                   data.combined$new.title == "Sir." |
+                   data.combined$new.title == "Officer" |
+                   data.combined$new.title == "Major.")
+data.combined$new.title[indexes] <- "Mr."
+
+# visualize!
+ggplot(data.combined[1:891,], aes(x = new.title, fill = Survived)) +
+  geom_bar() +
+  facet_wrap(~ Pclass) +
+  ggtitle("Survival for Collapsed new.title by Pclass")
+
+# now to rebuild the part tree
+features <- c("Pclass", "new.title", "family.size")
+rpart.train.2 <- data.combined[1:891, features]
+
+# run the CV and check results
+rpart.2.cv.1 <- rpart.cv(94622, rpart.train.2, rf.label, ctrl.3)
+rpart.2.cv.1
+# accuracy = 82.8%
+# increase of 1%, good!
+
+# plot
+prp(rpart.2.cv.1$finalModel, type = 0, extra = 1, under = TRUE)
+# the increase is probably not overfitting
+
+# but, it's still very blunt on men
+# look at first class Mr.s
+indexes.first.mr <- which(data.combined$new.title == "Mr." & data.combined$Pclass == "1")
+first.mr.df <- data.combined[indexes.first.mr, ]
+summary(first.mr.df)
+
+# one female??
+first.mr.df[first.mr.df$Sex == "female", ]
+# fix
+indexes <- which(data.combined$new.title == "Mr." &
+                   data.combined$Sex == "female")
+data.combined$new.title[indexes] <- "Mrs."
+
+# any other gender slip ups?
+length(which(data.combined$Sex == "female" &
+               (data.combined$new.title == "Master." |
+                  data.combined$new.title == "Mr.")))
+
+# refresh data frame
+indexes.first.mr <- which(data.combined$new.title == "Mr." & 
+                            data.combined$Pclass == "1")
+first.mr.df <- data.combined[indexes.first.mr, ]
+
+# let's look at surviving 1st class mr.s
+# we should be able to predict these better
+summary(first.mr.df[first.mr.df$Survived == "1", ])
+View(first.mr.df[first.mr.df$Survived == "1", ])
+
+# lots of variation in fares (35 - 512)
+# pull out some ticket numbers for high fares
+indexes <- which(data.combined$Ticket == "PC 17755" |
+                   data.combined$Ticket == "PC 17611" |
+                   data.combined$Ticket == "113760")
+View(data.combined[indexes, ])
+
+# ticket pc 17755
+# looks like a mother and son, and their servants
+# family size variable is incorrect
+
+# also, visualize survival by first class male and fare
+ggplot(first.mr.df, aes(x = Fare, fill = Survived)) +
+  geom_density(alpha = 0.5) +
+  ggtitle("1st class Mr. survival by fare")
+# density plot useful for visualizing fluctuation over range of values
+
+#check fare to survival 
+# divide all fares by the number of people travelling on the ticket
+# get average fare
+ticket.party.size <- rep(0, nrow(data.combined))
+  # create feature for party size
+avg.fare <- rep(0.0, nrow(data.combined))
+  # create feature for avg. fare
+tickets <- unique(data.combined$Ticket)
+  # find all unique tickets, then iterate and find corresponding records from data set
+length(tickets)
+
+for (i in 1:length(tickets)) {
+  current.ticket <- tickets[i]
+  party.indexes <- which(data.combined$Ticket == current.ticket)
+    # which tickets in data.combined correspond to the current ticket?
+  current.avg.fare <- data.combined[party.indexes[1], "Fare"] / length(party.indexes)
+    # get the fare from the first index, and divide by number in party
+  
+  for (k in 1:length(party.indexes)) {
+    ticket.party.size[party.indexes[k]] <- length(party.indexes)
+      # k is current party
+    avg.fare[party.indexes[k]] <- current.avg.fare
+  }
+}
+
+# add new vars to data.combined
+data.combined$ticket.party.size <- ticket.party.size
+data.combined$avg.fare <- avg.fare
+
+# now refresh first-class Mr data frame
+first.mr.df <- data.combined[indexes.first.mr, ]
+summary(first.mr.df)
+
+# visualize! new features
+ggplot(first.mr.df[first.mr.df$Survived != "None",], aes(x = ticket.party.size, fill = Survived)) +
+  geom_density(alpha = 0.5) +
+  ggtitle("survival rates 1st class mr. by ticket.party.size")
+
+ggplot(first.mr.df[first.mr.df$Survived != "None", ], aes(x = avg.fare, fill = Survived)) +
+  geom_density(alpha = 0.5) +
+  ggtitle("survival rates 1st class mr by avg fare")
+
+# is there correlation btw tick party size and avg fare?
+# if so, use one or the other, not both
+
+summary(data.combined$avg.fare)
+  # one NA, need to fix
+data.combined[is.na(data.combined$avg.fare),]
+  # Fare is NA for Mr. Thomas Storey, lone third class male
+# get records of similar passengers and summarize
+indexes <- with(data.combined, which(Pclass == "3" & title == "Mr." & family.size == 1 &
+                                       Ticket != "3701")) # don't include storey
+similar.na.passengers <- data.combined[indexes, ]
+summary(similar.na.passengers$avg.fare)
+
+# use median b/c it's close to mean but a little higher
+data.combined[is.na(avg.fare), "avg.fare"] <- 7.840
+
+summary(data.combined$ticket.party.size)
+
+# normalizing the data is beneficial, some machine learning algorithms require it
+# caret makes it easy!
+prepoc.data.combined <- data.combined[, c("ticket.party.size", "avg.fare")]
+  # subset data.combined to the vars we're interested in
+?preProcess
+  # center and sclae is default
+  # puts all data on same scale
+preProc <- preProcess(prepoc.data.combined, method = c("center", "scale"))
+
+postproc.data.combined <- predict(preProc, prepoc.data.combined)
+summary(postproc.data.combined)
+# now get the correlation
+cor(postproc.data.combined$ticket.party.size, postproc.data.combined$avg.fare)
+# ?cor # returns a correlation score between -1 an 1; 0 = no correlation
+# core = 0.0942, low correlation
+# therefore, use both features to extract predictive power from data set
+
+# that tested all data, but what about 1st class mr.s?
+# subset the data to just them, then run cor again
+indexes <- which(data.combined$Pclass == "1")
+cor(postproc.data.combined$ticket.party.size[indexes], 
+    postproc.data.combined$avg.fare[indexes])
+# 0.2576 correlation now, still pretty low
+
+# alright, let's see if our feature engineering made a diff
+features <- c("Pclass", "new.title", "family.size", "ticket.party.size", "avg.fare")
+rpart.train.3 <- data.combined[1:891, features]
+
+# run CV and check results
+rpart.3.cv.1 <- rpart.cv(94622, rpart.train.3, rf.label, ctrl.3)
+rpart.3.cv.1
+# accuracy 83.1%, even better
+# check the tree
+prp(rpart.3.cv.1$finalModel, type = 0, extra = 1, under = TRUE)
+# family size wasn't even used, tree went with t.party.size instead
+# more generalized, more likely useful for unseen data
+# mr. is still very blunt, though
